@@ -7,13 +7,9 @@ from colorama import init, Fore
 import tkinter as tk
 from tkinter import filedialog
 
-# Инициализация colorama для цветного вывода
 init(autoreset=True)
-
-# Путь к конфигурационному файлу
 CONFIG_PATH = 'config.ini'
 
-# Встроенные локализации для четырёх языков
 DEFAULT_MESSAGES = {
     'en': {
         'mode_prompt': "Choose download mode:\n1) Single video\n2) Playlist",
@@ -77,18 +73,15 @@ DEFAULT_MESSAGES = {
     }
 }
 
-# Аудио и видео форматы
 AUDIO_FORMATS = ['mp3', 'm4a', 'wav', 'flac', 'aac', 'opus']
 VIDEO_FORMATS = ['mp4', 'mkv', 'webm']
 OUTPUT_FORMATS = AUDIO_FORMATS + VIDEO_FORMATS
 
-# Качество аудио (кбит/с) и видео (высота, пикс.)
 AUDIO_QUALITY = ['64', '96', '128', '192', '256', '320']
 VIDEO_QUALITY = ['144', '240', '360', '480', '720', '1080', '1440', '2160', '4320']
 
 
 def ensure_config():
-    # Создание config.ini, если не существует
     if not os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             f.write('; Available languages: en, ru, uk, ja\n')
@@ -98,7 +91,6 @@ def ensure_config():
 
 
 def load_settings():
-    # Чтение языка и пути к ffmpeg
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH, encoding='utf-8')
     lang = config.get('settings', 'language', fallback='en')
@@ -109,12 +101,10 @@ def load_settings():
 
 
 def format_duration(seconds):
-    # Конвертация секунд в HH:MM:SS
     return str(datetime.timedelta(seconds=seconds)) if seconds else 'N/A'
 
 
 def print_video_info(info):
-    # Вывод метаданных видео
     print(Fore.CYAN + f"Title: {info.get('title')}")
     print(Fore.CYAN + f"Duration: {format_duration(info.get('duration'))}")
     print(Fore.YELLOW + f"Views: {info.get('view_count')}")
@@ -123,7 +113,6 @@ def print_video_info(info):
 
 
 def print_playlist_table(info):
-    # Вывод таблицы треков плейлиста
     print(Fore.MAGENTA + f"{'No':<4} {'Title':<50} {'Duration':<10}")
     for i, entry in enumerate(info.get('entries', []), 1):
         title = entry.get('title', 'N/A')[:50]
@@ -132,7 +121,6 @@ def print_playlist_table(info):
 
 
 def get_info(url, opts):
-    # Получение информации, None при неудаче
     try:
         with YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
@@ -141,7 +129,6 @@ def get_info(url, opts):
 
 
 def download(url, opts):
-    # Скачивание, False при ошибке
     try:
         with YoutubeDL(opts) as ydl:
             ydl.download([url])
@@ -151,7 +138,6 @@ def download(url, opts):
 
 
 def ask_download_dir():
-    # Запрос папки сохранения через графический диалог
     root = tk.Tk()
     root.withdraw()
     directory = filedialog.askdirectory(title="Select download folder")
@@ -161,12 +147,33 @@ def ask_download_dir():
     return directory
 
 
+def set_metadata_hook(info):
+    # Set metadata for audio files
+    if info.get('filepath', '').endswith(tuple(AUDIO_FORMATS)):
+        # Basic metadata
+        metadata = {
+            'title': info.get('title', ''),
+            'artist': info.get('uploader', ''),
+        }
+        
+        # Track number for playlists
+        if info.get('playlist_index') is not None:
+            metadata['track'] = str(info['playlist_index'])
+        
+        # Add metadata to FFmpeg arguments
+        args = []
+        for key, value in metadata.items():
+            if value:
+                args.extend(['-metadata', f'{key}={value}'])
+        
+        return args
+    return []
+
+
 def main():
     ensure_config()
     lang, ffmpeg_path = load_settings()
     msgs = DEFAULT_MESSAGES[lang]
-
-    # Указываем ffmpeg
     os.environ['FFMPEG_LOCATION'] = ffmpeg_path
 
     while True:
@@ -192,7 +199,6 @@ def main():
         if input(Fore.GREEN + msgs['confirm_prompt'] + ' ').lower() != 'y':
             continue
 
-        # Выбор формата
         print(Fore.GREEN + msgs['format_prompt'])
         for idx, fmt in enumerate(OUTPUT_FORMATS, 1):
             print(Fore.CYAN + f"[{idx}] - {fmt}")
@@ -202,7 +208,6 @@ def main():
             continue
         out_fmt = OUTPUT_FORMATS[int(fc) - 1]
 
-        # Выбор качества
         if out_fmt in AUDIO_FORMATS:
             print(Fore.GREEN + msgs['quality_prompt_audio'])
             for idx, q in enumerate(AUDIO_QUALITY, 1):
@@ -212,17 +217,29 @@ def main():
                 print(Fore.RED + msgs['error'])
                 continue
             quality = AUDIO_QUALITY[int(qc) - 1]
-            # Выбор папки после качества
             download_dir = ask_download_dir()
+            
             ydl_opts = {
                 'format': f'bestaudio[abr<={quality}]/bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': out_fmt,
-                    'preferredquality': quality
-                }],
+                'postprocessors': [
+                    {
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': out_fmt,
+                        'preferredquality': quality,
+                    },
+                    {
+                        'key': 'FFmpegMetadata',
+                        'add_metadata': True,
+                    },
+                    {
+                        'key': 'EmbedThumbnail',
+                        'already_have_thumbnail': False,
+                    }
+                ],
+                'writethumbnail': True,
                 'outtmpl': f"{download_dir}/%(title)s.%(ext)s",
-                'ignoreerrors': True
+                'ignoreerrors': True,
+                'postprocessor_hooks': [set_metadata_hook],
             }
         else:
             print(Fore.GREEN + msgs['quality_prompt_video'])
@@ -233,7 +250,6 @@ def main():
                 print(Fore.RED + msgs['error'])
                 continue
             resolution = VIDEO_QUALITY[int(qc) - 1]
-            # Выбор папки после качества
             download_dir = ask_download_dir()
             ydl_opts = {
                 'format': f'bestvideo[height<={resolution}]+bestaudio/best',
@@ -242,7 +258,6 @@ def main():
                 'ignoreerrors': True
             }
 
-        # Запуск и проверка
         if not download(url, ydl_opts):
             print(Fore.RED + msgs['download_error'])
             continue
@@ -250,6 +265,7 @@ def main():
         if input(Fore.GREEN + msgs['restart_prompt'] + ' ').lower() != 'y':
             print(Fore.YELLOW + msgs['goodbye'])
             sys.exit(0)
+
 
 if __name__ == '__main__':
     main()
