@@ -1,6 +1,6 @@
 # Simple youtube downloader
 
-[🇬🇧 English](#english-documentation) | [🇷🇺 Русский](#-русская-документация)
+[🇬🇧 English](#-english-documentation) | [🇷🇺 Русский](#-русская-документация)
 
 ---
 
